@@ -6,20 +6,7 @@ from io import BytesIO
 import copy
 import asyncio #psure i could just use the sleep() function
 
-#emoji stuff
-class SelectionState:
-    def __init__(self):
-        # First position
-        self.letter = None
-        self.number = None
-        self.position = None
-        self.action = None
-        # Second position
-        self.letter2 = None
-        self.number2 = None
-        self.position2 = None
-        # Flag to track if we're selecting the second position
-        self.selecting_second_position = False
+
 
 class ChessGame:
     def __init__(self, rows=8, columns=8):
@@ -31,7 +18,6 @@ class ChessGame:
         self.rows = rows
         self.columns = columns
         self.notes = ""
-        self.selection_states = {}
 
 
     
@@ -671,143 +657,6 @@ async def remove_piece_mini(ctx, position: str, index: int = None):
     except Exception as e:
         await ctx.send(f"Error: {str(e)}")
 
-# stuff for mobile support here- I really should move this to another file
-EMOJI_MAPPINGS = {
-    "🅰️": "A", "🅱️": "B", "🐱": "C", "🐶": "D", 
-    "🥚": "E", "🦊": "F", "🐐": "G", "🐴": "H",
-    "1️⃣": "1", "2️⃣": "2", "3️⃣": "3", "4️⃣": "4",
-    "5️⃣": "5", "6️⃣": "6", "7️⃣": "7", "8️⃣": "8",
-    "❌": "cancel",
-    "🏃": "move",
-    "🔄": "swap",
-    "🔪": "kill"
-}
-
-    
-async def show_letter_selection(ctx):
-    msg = await ctx.send("Select column (A-H):")
-    selection_states[str(ctx.channel.id)] = SelectionState()
-    
-    emojis = ["🅰️", "🅱️", "🐱", "🐶", "🥚", "🦊", "🐐", "🐴", "❌"]
-    for emoji in emojis:
-        await msg.add_reaction(emoji)
-
-async def show_letter_selection_second(message):
-    await message.clear_reactions()
-    await message.edit(content=f"Selected {selection_states[str(message.channel.id)].action} from {selection_states[str(message.channel.id)].position}\nSelect destination column (A-H):")
-    
-    emojis = ["🅰️", "🅱️", "🐱", "🐶", "🥚", "🦊", "🐐", "🐴", "❌"]
-    for emoji in emojis:
-        await message.add_reaction(emoji)
-
-async def execute_action(message):
-    channel_id = str(message.channel.id)
-    state = selection_states[channel_id]
-    game = games[channel_id]
-
-    if state.action == "move":
-        # Execute move_piece
-        try:
-            game.move_piece(state.position.lower(), state.position2.lower())
-            await message.channel.send(f"Moved piece from {state.position} to {state.position2}")
-        except Exception as e:
-            await message.channel.send(f"Error: {str(e)}")
-    elif state.action == "swap":
-        # Execute swap_piece
-        try:
-            game.swap_piece(state.position.lower(), state.position2.lower())
-            await message.channel.send(f"Swapped pieces at {state.position} and {state.position2}")
-        except Exception as e:
-            await message.channel.send(f"Error: {str(e)}")
-
-    # Redraw board and clean up
-    await redraw_board(message.channel, channel_id)
-    del selection_states[channel_id]
-    await message.delete()
-
-@bot.event
-async def on_reaction_add(reaction, user):
-    if user.bot:
-        return
-
-    channel_id = str(reaction.message.channel.id)
-    if channel_id not in selection_states:
-        return
-
-    emoji = str(reaction.emoji)
-    state = selection_states[channel_id]
-    
-    if emoji not in EMOJI_MAPPINGS:
-        return
-
-    value = EMOJI_MAPPINGS[emoji]
-    
-    if value == "cancel":
-        del selection_states[channel_id]
-        await reaction.message.delete()
-        return
-
-    if state.selecting_second_position:
-        # Handle second position selection
-        if state.letter2 is None:
-            if value in "ABCDEFGH":
-                state.letter2 = value
-                await show_number_selection(reaction.message)
-        elif state.number2 is None:
-            if value in "12345678":
-                state.number2 = value
-                state.position2 = f"{state.letter2}{state.number2}"
-                # Execute the move or swap
-                await execute_action(reaction.message)
-    else:
-        # Original position selection
-        if state.letter is None:
-            if value in "ABCDEFGH":
-                state.letter = value
-                await show_number_selection(reaction.message)
-        elif state.number is None:
-            if value in "12345678":
-                state.number = value
-                state.position = f"{state.letter}{state.number}"
-                await show_action_selection(reaction.message)
-        elif value in ["move", "swap"]:
-            state.action = value
-            state.selecting_second_position = True
-            await show_letter_selection_second(reaction.message)
-
-async def show_number_selection(message):
-    # First clear all existing reactions
-    await message.clear_reactions()
-    # Add a small delay
-    await asyncio.sleep(0.5)  
-    
-    # Update the message content
-    await message.edit(content="Select row (1-8):")
-    
-    # Add new number emojis
-    emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "❌"]
-    for emoji in emojis:
-        await message.add_reaction(emoji)
-
-
-async def show_action_selection(message):
-    # First clear all existing reactions
-    await message.clear_reactions()
-    
-    # Update the message content
-    await message.edit(content=f"Selected position: {selection_states[str(message.channel.id)].position}\nSelect action:")
-    
-    # Add action emojis
-    await message.add_reaction("🏃")  # move
-    await message.add_reaction("🔄")  # swap
-    await message.add_reaction("🔪")  # kill
-    await message.add_reaction("❌")  # cancel
-
-
-@bot.command(name='select')
-async def start_selection(ctx):
-    """testing for emoji support"""
-    await show_letter_selection(ctx)
 
 # Run the bot
-bot.run('I will set up something i swear')
+bot.run('todo')
