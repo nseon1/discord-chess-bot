@@ -78,14 +78,14 @@ async def redraw_board(ctx, channel_id): #very important, easy to break
         # Convert column letters to index
         col = get_column_index(col_str)
         
-        x = col * square_size
-        y = board.size[1] - ((row + 1) * square_size)
+        x = col * square_size_w
+        y = board.size[1] - ((row + 1) * square_size_h)
         
         piece = piece_data["image"].copy()
         piece.thumbnail((piece_size, piece_size), Image.Resampling.LANCZOS)
         
-        x_offset = (square_size - piece.width) // 2
-        y_offset = (square_size - piece.height) // 2
+        x_offset = (square_size_w - piece.width) // 2
+        y_offset = (square_size_h - piece.height) // 2
         x += x_offset
         y += y_offset
         
@@ -108,8 +108,8 @@ async def redraw_board(ctx, channel_id): #very important, easy to break
                 grid_y = i // grid_size
                 
                 # Position within the square based on grid
-                x_offset = (square_size - (grid_size * mini_size)) // 2 + (grid_x * mini_size)
-                y_offset = (square_size - (grid_size * mini_size)) // 2 + (grid_y * mini_size)
+                x_offset = (square_size_w - (grid_size * mini_size)) // 2 + (grid_x * mini_size)
+                y_offset = (square_size_h - (grid_size * mini_size)) // 2 + (grid_y * mini_size)
                 
                 board.paste(mini, (x + x_offset, y + y_offset), mini if mini.mode == 'RGBA' else None)
     # Draw all mini icons
@@ -131,8 +131,8 @@ async def redraw_board(ctx, channel_id): #very important, easy to break
             row = int(pos[num_start:]) - 1
             col = get_column_index(col_str)
             
-            x = col * square_size
-            y = board.size[1] - ((row + 1) * square_size)
+            x = col * square_size_w
+            y = board.size[1] - ((row + 1) * square_size_h)
             
             mini = mini_data["image"].copy()
             mini.thumbnail((mini_size, mini_size), Image.Resampling.LANCZOS)
@@ -142,8 +142,8 @@ async def redraw_board(ctx, channel_id): #very important, easy to break
             grid_y = i // grid_size
             
             # Position within the square based on grid
-            x_offset = (square_size - (grid_size * mini_size)) // 2 + (grid_x * mini_size)
-            y_offset = (square_size - (grid_size * mini_size)) // 2 + (grid_y * mini_size)
+            x_offset = (square_size_w - (grid_size * mini_size)) // 2 + (grid_x * mini_size)
+            y_offset = (square_size_h - (grid_size * mini_size)) // 2 + (grid_y * mini_size)
             x += x_offset
             y += y_offset
             
@@ -810,4 +810,4 @@ async def start_selection(ctx):
     await show_letter_selection(ctx)
 
 # Run the bot
-bot.run(' (ill use dotenv next day)')
+bot.run('I will set up something i swear')
