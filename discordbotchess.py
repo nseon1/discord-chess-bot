@@ -1,16 +1,17 @@
-import discord
-from discord.ext import commands
-import requests
-from PIL import Image
-from io import BytesIO
-import copy
+import discord # discord
+from discord.ext import commands #discord
+import requests #discord
+from PIL import Image #stuff for the board and images
+from io import BytesIO # actually open the cached image created on my pc
+import copy # undo button
 import asyncio #psure i could just use the sleep() function
-
+import json # for pieces; its like pandas 
+import os
 
 
 class ChessGame:
     def __init__(self, rows=8, columns=8):
-        self.board_image = None
+        self.board_image = None 
         self.pieces = {}  # Format: position -> {"image": img, "type": "token", "piece_minis": []}
         self.empty_board = None
         self.mini_icons = {}  
@@ -27,24 +28,22 @@ class ChessGame:
     
     def can_undo(self):
         """Checks if there is a move to undo"""
-        return self.last_move is not None    
+        return self.last_move is not None #only returns if i can undo    
 
-piece_scale = {"factor": 0.9}
+piece_scale = {"factor": 0.9} # so the square of pieces and square of board arent the exact same size
 
 games = {}  # Format: {channel_id: ChessGame()}
-selection_states = {}
-# Add this at the global scope, before your commands
 default_board_size = {"rows": 8, "columns": 8}  # Store default/custom size
 
-async def redraw_board(ctx, channel_id): #very important, easy to break
+async def redraw_board(ctx, channel_id): #very important, easy to breakxdc
     """Redraws the entire board with all pieces"""
-    game = games[channel_id]
-    board = game.empty_board.copy()
+    game = games[channel_id] # check to  have stuff in its right channel
+    board = game.empty_board.copy() #initalize the board
     
     # Calculate square size based on board dimensions
-    square_size_w = board.size[0] // game.columns
-    square_size_h = board.size[1] // game.rows
-    square_size = min(square_size_w, square_size_h)
+    square_size_w = board.size[0] // game.columns #get the width of the square size by dividing the board size by the amount of columns (eg: 800px// 10 columns)
+    square_size_h = board.size[1] // game.rows # same as above but im psure its [width,height] so array [1] gets the board.height (might be wrong)
+    square_size = min(square_size_w, square_size_h) 
     
     # Use global scale factor for piece size
     piece_size = int(square_size * piece_scale["factor"])
@@ -184,44 +183,6 @@ def get_column_index(column_str: str) -> int:
 bot = commands.Bot(command_prefix='.', intents=discord.Intents.all())
 
 
-@bot.command(aliases=['n','note','edit_note','edit'])
-async def notes(ctx, *, new_notes=None):
-    """
-    Display or update game notes.
-    Usage: 
-    .notes - Display current notes
-    .notes <text> - Replace notes with new text
-    .notes +<text> - Append text to existing notes
-    """
-    channel_id = str(ctx.channel.id)
-    if channel_id not in games:
-        await ctx.send("Please setup a board first!")
-        return
-
-    try:
-        game = games[channel_id]
-        
-        if new_notes is not None:
-            if new_notes.startswith('+'):
-                game.notes += '\n' + new_notes[1:]
-                await ctx.send("Notes appended!")
-            else:
-                game.notes = new_notes
-                await ctx.send("Notes updated!")
-            
-        notes_display = "```\n"
-        if game.notes:
-            notes_display += game.notes
-        else:
-            notes_display += "No notes yet"
-        notes_display += "\n```"
-        
-        await ctx.send(notes_display)
-        
-    except Exception as e:
-        await ctx.send(f"Error: {str(e)}")
-
-
 
 @bot.command(aliases=['resize_board'])
 async def custom_size(ctx, rows: int, columns: int):
@@ -282,6 +243,303 @@ def resize_image(image, max_size=None):
         return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
     return image
 
+
+
+
+
+
+@bot.command(aliases= ['scale'])
+async def set_scale(ctx, scale: float):
+
+    """
+    Adjusts piece scaling (0.1 to 2.0)
+    Example: .set_scale 0.7 for 70% size
+    """
+    try:
+        if not (0.1 <= scale <= 2.0):
+            await ctx.send("Scale must be between 0.1 (10%) and 2.0 (200%)!")
+            return
+            
+        piece_scale["factor"] = scale
+        
+        # Redraw board with new scaling if a game exists
+        channel_id = str(ctx.channel.id)
+        if channel_id in games:
+            await redraw_board(ctx, channel_id)
+            await ctx.send(f"Piece scale set to {scale*100:.0f}%")
+        else:
+            await ctx.send(f"Piece scale set to {scale*100:.0f}%. Start a game to see the effect.")
+            
+    except Exception as e:
+        await ctx.send(f"Error setting scale: {str(e)}")
+
+@bot.command(aliases=['reset_game', 'clear_board','clear','reset'])
+async def end_game(ctx):
+    """Ends the current game and clears the board"""
+    channel_id = str(ctx.channel.id)
+    try:
+        if channel_id in games:
+            del games[channel_id]
+            await ctx.send("Game ended! All pieces, effects, and notes have been cleared.")
+        else:
+            await ctx.send("No active game to end!")
+            
+    except Exception as e:
+        await ctx.send(f"Error ending game: {str(e)}")
+
+
+
+
+
+@bot.command(name='custom_piece')
+async def add_custom_piece(ctx, *, args: str):
+    """Add a custom chess piece
+    Format: !custom_piece PieceName,white_img_url,black_img_url,move_description
+    Example: !custom_piece Dragon,https://i.imgur.com/white.png,https://i.imgur.com/black.png,"Moves 3 squares in any direction, can jump pieces"
+    """
+    try:
+        # Split arguments while preserving quoted text
+        parts = [p.strip() for p in args.split(',')]
+        if len(parts) < 4:
+            raise ValueError("Not enough parameters")
+            
+        # Extract parts with description potentially containing commas
+        name, white_img, black_img, *desc_parts = parts
+        description = ','.join(desc_parts)  # Rejoin description
+        
+        # Validate URLs
+        if not (white_img.startswith('http') and black_img.startswith('http')):
+            raise ValueError("Image URLs must be valid web addresses")
+            
+        # Add to storage
+        success = save_custom_piece(
+            name=name,
+            white_image=white_img,
+            black_image=black_img,
+            description=description
+        )
+        
+        if success:
+            await ctx.send(f"✅ Successfully added {name} to custom pieces!")
+        else:
+            await ctx.send(f"⚠️ {name} already exists in custom pieces!")
+
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)}\n"
+                       "**Correct format:** `!custom_piece [name],[white_img],[black_img],[description]`\n"
+                       "**Example:** `!custom_piece Dragon,🐉,https://i.imgur.com/white.png,https://i.imgur.com/black.png,\"Moves 3 squares any direction\"`")
+
+@bot.command(name='show_piece')
+async def show_custom_piece(ctx, piece_name: str):
+    """Display information about a custom piece"""
+    pieces = load_custom_pieces()
+    
+    if piece_name in pieces:
+        piece = pieces[piece_name]
+        embed = discord.Embed(title=f" {piece_name}", description=piece['description'])
+        embed.add_field(name="White Image", value=f"[Link]({piece['white_image']})")
+        embed.add_field(name="Black Image", value=f"[Link]({piece['black_image']})")
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"Piece '{piece_name}' not found in custom pieces!")
+
+CUSTOM_PIECES_FILE = 'custom_pieces.json'
+
+def load_custom_pieces():
+    """Load custom pieces from JSON file"""
+    if os.path.exists(CUSTOM_PIECES_FILE):
+        with open(CUSTOM_PIECES_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_custom_piece(**piece_data):
+    """Save a new custom piece to JSON file"""
+    pieces = load_custom_pieces()
+    
+    if piece_data['name'] in pieces:
+        return False
+        
+    pieces[piece_data['name']] = {
+        'white_image': piece_data['white_image'],
+        'black_image': piece_data['black_image'],
+        'description': piece_data['description']
+    }
+    
+    with open(CUSTOM_PIECES_FILE, 'w') as f:
+        json.dump(pieces, f, indent=2)
+        
+    return True
+# piececommands.py (Optional Utilities)
+
+def get_custom_piece(piece_name):
+    """Get custom piece data"""
+    pieces = load_custom_pieces()
+    return pieces.get(piece_name, None)
+
+def format_piece_display(piece_name):
+    """Format piece information for display"""
+    piece = get_custom_piece(piece_name)
+    if piece:
+        return (f"**{piece_name}**\n"
+                f"{piece['description']}\n"
+                f"White: {piece['white_image']}\n"
+                f"Black: {piece['black_image']}")
+    return "Piece not found"
+
+@bot.command(aliases=['add_white'])
+async def add_piece_white(ctx, *, args):
+    """Adds a white piece from the custom database to specified positions"""
+    channel_id = str(ctx.channel.id)
+    if channel_id not in games:
+        await ctx.send("Please setup a board first!")
+        return
+    
+    game = games[channel_id]
+    custom_pieces = load_custom_pieces()
+    parts = args.split()
+    
+    # Find all valid piece names in the arguments
+    piece_candidates = [p for p in parts if p in custom_pieces]
+    
+    if len(piece_candidates) != 1:
+        await ctx.send(f"❌ Specify exactly one valid piece. Available: {', '.join(custom_pieces.keys())}")
+        return
+    
+    piece_name = piece_candidates[0]
+    positions = [p for p in parts if p != piece_name]
+    
+    # Validate positions
+    valid_positions = []
+    for pos in positions:
+        formatted_pos = format_position(pos)
+        if validate_position(game, formatted_pos):
+            valid_positions.append(formatted_pos)
+        else:
+            await ctx.send(f"❌ Invalid position: {pos}")
+            return
+    
+    # Get piece data
+    piece_data = custom_pieces.get(piece_name)
+    if not piece_data:
+        await ctx.send(f"❌ Piece '{piece_name}' not found!")
+        return
+    
+    # Download white image
+    try:
+        response = requests.get(piece_data['white_image'])
+        response.raise_for_status()
+        token_img = Image.open(BytesIO(response.content))
+    except Exception as e:
+        await ctx.send(f"❌ Failed to load image for {piece_name}: {str(e)}")
+        return
+    
+    # Save state and add pieces
+    game.save_state()
+    for pos in valid_positions:
+        game.pieces[pos] = {"image": token_img.copy(), "type": "token"}
+    
+    await redraw_board(ctx, channel_id)
+    await ctx.send(f"✅ Added white {piece_name} to {', '.join(valid_positions).upper()}")
+
+@bot.command(aliases=['add_black'])
+async def add_piece_black(ctx, *, args):
+    """Adds a black piece from the custom database to specified positions"""
+    channel_id = str(ctx.channel.id)
+    if channel_id not in games:
+        await ctx.send("Please setup a board first!")
+        return
+    
+    game = games[channel_id]
+    custom_pieces = load_custom_pieces()
+    parts = args.split()
+    
+    # Find all valid piece names in the arguments
+    piece_candidates = [p for p in parts if p in custom_pieces]
+    
+    if len(piece_candidates) != 1:
+        await ctx.send(f"❌ Specify exactly one valid piece. Available: {', '.join(custom_pieces.keys())}")
+        return
+    
+    piece_name = piece_candidates[0]
+    positions = [p for p in parts if p != piece_name]
+    
+    # Validate positions
+    valid_positions = []
+    for pos in positions:
+        formatted_pos = format_position(pos)
+        if validate_position(game, formatted_pos):
+            valid_positions.append(formatted_pos)
+        else:
+            await ctx.send(f"❌ Invalid position: {pos}")
+            return
+    
+    # Get piece data
+    piece_data = custom_pieces.get(piece_name)
+    if not piece_data:
+        await ctx.send(f"❌ Piece '{piece_name}' not found!")
+        return
+    
+    # Download black image
+    try:
+        response = requests.get(piece_data['black_image'])
+        response.raise_for_status()
+        token_img = Image.open(BytesIO(response.content))
+    except Exception as e:
+        await ctx.send(f"❌ Failed to load image for {piece_name}: {str(e)}")
+        return
+    
+    # Save state and add pieces
+    game.save_state()
+    for pos in valid_positions:
+        game.pieces[pos] = {"image": token_img.copy(), "type": "token"}
+    
+    await redraw_board(ctx, channel_id)
+    await ctx.send(f"✅ Added black {piece_name} to {', '.join(valid_positions).upper()}")
+
+
+
+# Run the bot
+
+
+
+#goodies
+@bot.command(aliases=['n','note','edit_note','edit'])
+async def notes(ctx, *, new_notes=None):
+    """
+    Display or update game notes.
+    Usage: 
+    .notes - Display current notes
+    .notes <text> - Replace notes with new text
+    .notes +<text> - Append text to existing notes
+    """
+    channel_id = str(ctx.channel.id)
+    if channel_id not in games:
+        await ctx.send("Please setup a board first!")
+        return
+
+    try:
+        game = games[channel_id]
+        
+        if new_notes is not None:
+            if new_notes.startswith('+'):
+                game.notes += '\n' + new_notes[1:]
+                await ctx.send("Notes appended!")
+            else:
+                game.notes = new_notes
+                await ctx.send("Notes updated!")
+            
+        notes_display = "```\n"
+        if game.notes:
+            notes_display += game.notes
+        else:
+            notes_display += "No notes yet"
+        notes_display += "\n```"
+        
+        await ctx.send(notes_display)
+        
+    except Exception as e:
+        await ctx.send(f"Error: {str(e)}")
+
 @bot.command()
 async def undo(ctx):
     """Undoes the last move"""
@@ -307,7 +565,21 @@ async def undo(ctx):
     except Exception as e:
         await ctx.send(f"Error during undo: {str(e)}")
 
+@bot.command(aliases=['board','show','b'])
+async def show_board(ctx):
+    """Shows the current board state"""
+    channel_id = str(ctx.channel.id)
+    if channel_id not in games:
+        await ctx.send("No active game! Use .setup to start one.")
+        return
+        
+    try:
+        await redraw_board(ctx, channel_id)
+    except Exception as e:
+        await ctx.send(f"Error showing board: {str(e)}")
 
+
+#piece commands
 @bot.command(aliases=['mini'])
 async def add_mini(ctx, position: str):
     """Adds a mini icon to a position"""
@@ -346,7 +618,6 @@ async def add_mini(ctx, position: str):
         
     except Exception as e:
         await ctx.send(f"Error: {str(e)}")
-
 
 @bot.command(aliases=['rmini'])
 async def remove_mini(ctx, position: str):
@@ -528,58 +799,6 @@ async def remove_piece(ctx, position: str):
     except Exception as e:
         await ctx.send(f"Error: {str(e)}")
 
-@bot.command(aliases=['board','show','b'])
-async def show_board(ctx):
-    """Shows the current board state"""
-    channel_id = str(ctx.channel.id)
-    if channel_id not in games:
-        await ctx.send("No active game! Use .setup to start one.")
-        return
-        
-    try:
-        await redraw_board(ctx, channel_id)
-    except Exception as e:
-        await ctx.send(f"Error showing board: {str(e)}")
-
-@bot.command(aliases= ['scale'])
-async def set_scale(ctx, scale: float):
-
-    """
-    Adjusts piece scaling (0.1 to 2.0)
-    Example: .set_scale 0.7 for 70% size
-    """
-    try:
-        if not (0.1 <= scale <= 2.0):
-            await ctx.send("Scale must be between 0.1 (10%) and 2.0 (200%)!")
-            return
-            
-        piece_scale["factor"] = scale
-        
-        # Redraw board with new scaling if a game exists
-        channel_id = str(ctx.channel.id)
-        if channel_id in games:
-            await redraw_board(ctx, channel_id)
-            await ctx.send(f"Piece scale set to {scale*100:.0f}%")
-        else:
-            await ctx.send(f"Piece scale set to {scale*100:.0f}%. Start a game to see the effect.")
-            
-    except Exception as e:
-        await ctx.send(f"Error setting scale: {str(e)}")
-
-@bot.command(aliases=['reset_game', 'clear_board','clear','reset'])
-async def end_game(ctx):
-    """Ends the current game and clears the board"""
-    channel_id = str(ctx.channel.id)
-    try:
-        if channel_id in games:
-            del games[channel_id]
-            await ctx.send("Game ended! All pieces, effects, and notes have been cleared.")
-        else:
-            await ctx.send("No active game to end!")
-            
-    except Exception as e:
-        await ctx.send(f"Error ending game: {str(e)}")
-
 @bot.command(aliases=['pmini', 'piece_mini'])
 async def add_piece_mini(ctx, position: str):
     """Adds a mini icon to a piece (moves with the piece)"""
@@ -658,5 +877,6 @@ async def remove_piece_mini(ctx, position: str, index: int = None):
         await ctx.send(f"Error: {str(e)}")
 
 
-# Run the bot
+
+
 bot.run('todo')
