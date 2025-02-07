@@ -10,15 +10,17 @@ import os
 
 
 class ChessGame:
-    def __init__(self, rows=8, columns=8):
+    def __init__(self, rows=8, columns=8, board_type="square"):
         self.board_image = None 
-        self.pieces = {}  # Format: position -> {"image": img, "type": "token", "piece_minis": []}
+        self.pieces = {}  
         self.empty_board = None
         self.mini_icons = {}  
         self.last_move = None  
         self.rows = rows
         self.columns = columns
         self.notes = ""
+        self.board_type = board_type  # New attribute to track board type
+
 
 
     
@@ -44,6 +46,11 @@ async def redraw_board(ctx, channel_id): #very important, easy to breakxdc
     square_size_w = board.size[0] // game.columns #get the width of the square size by dividing the board size by the amount of columns (eg: 800px// 10 columns)
     square_size_h = board.size[1] // game.rows # same as above but im psure its [width,height] so array [1] gets the board.height (might be wrong)
     square_size = min(square_size_w, square_size_h) 
+
+    if game.board_type == "hex":
+        square_size_w = int(square_size_w * 0.75)  # Each column moves 75% of hex width (hex width)
+        square_size_h = int(square_size_h * 0.866)  # Hex height (sqrt(3)/2) (hex height)
+
     
     # Use global scale factor for piece size
     piece_size = int(square_size * piece_scale["factor"])
@@ -62,9 +69,17 @@ async def redraw_board(ctx, channel_id): #very important, easy to breakxdc
         
         # Convert column letters to index
         col = get_column_index(col_str)
-        
-        x = col * square_size_w
-        y = board.size[1] - ((row + 1) * square_size_h)
+
+        if game.board_type == "square":
+            x = col * square_size_w
+            y = board.size[1] - ((row + 1) * square_size_h)
+
+        if game.board_type == "hex":
+            x = int(col * square_size_w)
+            y = int(board.size[1] - ((row + 1) * square_size_h))
+
+            if col % 2 == 1:  # Stagger every other column down
+                y += int(square_size_h / 2)
         
         piece = piece_data["image"].copy()
         piece.thumbnail((piece_size, piece_size), Image.Resampling.LANCZOS)
@@ -200,13 +215,17 @@ async def custom_size(ctx, rows: int, columns: int):
         
     except Exception as e:
         await ctx.send(f"Error setting custom size: {str(e)}")
-# Modify your setup_board command to use the custom size
+
+# setup_board
+
 @bot.command(aliases=['setup'])
-async def setup_board(ctx, board_url: str = None):
-    """Sets up or resets the board with current custom dimensions
-    Use that one image in chat or a 600x600 image for best results , or youll probably have to use the resize commands
-    """
+async def setup_board(ctx, board_type: str = "square", board_url: str = None):
+    """Sets up or resets the board with a chosen type ('square' or 'hex')"""
     channel_id = str(ctx.channel.id)
+    
+    if board_type.lower() not in ["square", "hex"]:
+        await ctx.send("Invalid board type! Use 'square' or 'hex'.")
+        return
     
     try:
         if channel_id in games:
@@ -221,18 +240,18 @@ async def setup_board(ctx, board_url: str = None):
         # Use custom size from global default
         rows = default_board_size["rows"]
         columns = default_board_size["columns"]
-        games[channel_id] = ChessGame(rows=rows, columns=columns)
+        games[channel_id] = ChessGame(rows=rows, columns=columns, board_type=board_type.lower())
         
         response = requests.get(board_url)
         board_image = Image.open(BytesIO(response.content))
-        #board_image = resize_image(board_image)
         games[channel_id].empty_board = board_image
         
         await redraw_board(ctx, channel_id)
-        await ctx.send(f"Board setup complete!")
+        await ctx.send(f"Board setup complete! Type: {board_type.capitalize()}")
         
     except Exception as e:
         await ctx.send(f"Error setting up board: {str(e)}")
+
 
 def resize_image(image, max_size=None):
     """Resize image while maintaining aspect ratio"""
@@ -327,7 +346,7 @@ async def add_custom_piece(ctx, *, args: str):
     except Exception as e:
         await ctx.send(f"❌ Error: {str(e)}\n"
                        "**Correct format:** `!custom_piece [name],[white_img],[black_img],[description]`\n"
-                       "**Example:** `!custom_piece Dragon,🐉,https://i.imgur.com/white.png,https://i.imgur.com/black.png,\"Moves 3 squares any direction\"`")
+                       "**Example:** `!custom_piece Dragon,https://i.imgur.com/white.png,https://i.imgur.com/black.png,\"Moves 3 squares any direction\"`")
 
 @bot.command(name='show_piece')
 async def show_custom_piece(ctx, piece_name: str):
@@ -702,7 +721,7 @@ async def move_piece(ctx, from_pos: str = None, to_pos: str = None):
     if channel_id not in games:
         await ctx.send("Please setup a board first!")
         return
-        
+         
     if from_pos is None or to_pos is None:
         await ctx.send("Usage: `.move [from] [to]`\nExample: `.move A1 B2`")
         return
