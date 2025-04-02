@@ -7,7 +7,14 @@ import copy # undo button
 import asyncio #psure i could just use the sleep() function
 import json # for pieces; its like pandas 
 import os
-
+from PIL import Image, ImageDraw
+from io import BytesIO
+from PIL import ImageDraw
+import math
+from PIL import ImageDraw
+from dataclasses import dataclass
+from typing import List, Tuple
+import math
 
 class ChessGame:
     def __init__(self, rows=8, columns=8, board_type="square"):
@@ -41,20 +48,60 @@ async def redraw_board(ctx, channel_id): #very important, easy to breakxdc
     """Redraws the entire board with all pieces"""
     game = games[channel_id] # check to  have stuff in its right channel
     board = game.empty_board.copy() #initalize the board
+    drawing = ImageDraw.Draw(board)  # Changed variable name to avoid confusion
+
     
     # Calculate square size based on board dimensions
     square_size_w = board.size[0] // game.columns #get the width of the square size by dividing the board size by the amount of columns (eg: 800px// 10 columns)
     square_size_h = board.size[1] // game.rows # same as above but im psure its [width,height] so array [1] gets the board.height (might be wrong)
     square_size = min(square_size_w, square_size_h) 
+    #base dimensions for hex
+    width = board.size[0]
+    height = board.size[1]
 
     if game.board_type == "hex":
-        square_size_w = int(square_size_w * 0.75)  # Each column moves 75% of hex width (hex width)
-        square_size_h = int(square_size_h * 0.866)  # Hex height (sqrt(3)/2) (hex height)
+        hex_width = (width / (game.columns + 0.5))  # Account for offset columns
+        hex_size = hex_width / 2  # Size from center to corner
+        hex_height = hex_size * 2 * 0.866  # Height of hexagon (√3 * size)
+        vertical_spacing = hex_height * 0.75  # Overlap hexagons vertically
+
+    
+        def get_hex_center(col, row):
+            """Calculate center position for hex grid placement"""
+            x = col * (hex_width * 0.75) + hex_size
+            y = height - (row * vertical_spacing + hex_size)
+            
+            # Offset odd columns
+            if col % 2:
+                y -= vertical_spacing / 2
+            
+            return int(x), int(y)  # Convert to integers
+
+        def get_hex_points(center_x, center_y):
+            """Calculate the six points of a hexagon given its center"""
+            points = []
+            for i in range(6):
+                angle_deg = 60 * i
+                angle_rad = math.pi / 180 * angle_deg
+                x = center_x + hex_size * math.cos(angle_rad)
+                y = center_y + hex_size * math.sin(angle_rad)
+                points.append((int(x), int(y)))
+            return points
+            
+        # Draw the hex grid
+        grid_color = (100, 100, 100, 128)  # Semi-transparent gray
+        for col in range(game.columns):
+            for row in range(game.rows):
+                center_x, center_y = get_hex_center(col, row)
+                hex_points = get_hex_points(center_x, center_y)
+                drawing.polygon(hex_points, outline=grid_color, width=1)
+
+
 
     
     # Use global scale factor for piece size
-    piece_size = int(square_size * piece_scale["factor"])
-    mini_size = int(square_size * 0.3)  # Make mini icons 30% of square size
+    piece_size = int(hex_size * 1.5 * piece_scale["factor"]) if game.board_type == "hex" else int(square_size * piece_scale["factor"])
+    mini_size = int(hex_size * 0.5) if game.board_type == "hex" else int(square_size * 0.3)
         
     # Draw all pieces
     for pos, piece_data in game.pieces.items():
@@ -75,19 +122,22 @@ async def redraw_board(ctx, channel_id): #very important, easy to breakxdc
             y = board.size[1] - ((row + 1) * square_size_h)
 
         if game.board_type == "hex":
-            x = int(col * square_size_w)
-            y = int(board.size[1] - ((row + 1) * square_size_h))
-
-            if col % 2 == 1:  # Stagger every other column down
-                y += int(square_size_h / 2)
+            x, y = get_hex_center(col, row)
         
         piece = piece_data["image"].copy()
         piece.thumbnail((piece_size, piece_size), Image.Resampling.LANCZOS)
         
         x_offset = (square_size_w - piece.width) // 2
         y_offset = (square_size_h - piece.height) // 2
-        x += x_offset
-        y += y_offset
+        x = int(x + x_offset)  # Convert final coordinates to integers
+        y = int(y + y_offset)
+
+         # Center the piece in its cell
+        if game.board_type == "hex":
+            x_offset = -piece.width // 2
+            y_offset = -piece.height // 2
+            x += x_offset
+            y += y_offset
         
         board.paste(piece, (x, y), piece if piece.mode == 'RGBA' else None)
          # Draw piece-specific minis if they exist
@@ -520,7 +570,7 @@ async def add_piece_black(ctx, *, args):
 # Run the bot
 
 
-
+ 
 #goodies
 @bot.command(aliases=['n','note','edit_note','edit'])
 async def notes(ctx, *, new_notes=None):
@@ -895,7 +945,8 @@ async def remove_piece_mini(ctx, position: str, index: int = None):
     except Exception as e:
         await ctx.send(f"Error: {str(e)}")
 
+#almost certain below is not going to work.
 
 
 
-bot.run('todo')
+bot.run('a.a.a')
